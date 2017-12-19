@@ -8,7 +8,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO.Ports;
-using System.Timers;    
+using System.Timers;
+using System.Threading;
 
 namespace Sistema_Supervisorio
 {
@@ -134,15 +135,17 @@ namespace Sistema_Supervisorio
         private void PortaSerial_DataReceivedHandler(object sender, SerialDataReceivedEventArgs e)
         {
             SerialPort Serial = (SerialPort)sender;
+            Thread.Sleep(20);
             int bytes = Serial.BytesToRead;
             byte[] recebido = new byte[bytes];
             Serial.Read(recebido, 0, bytes);
-            BeginInvoke(new Delegate_void_String(Append_Text), new object[] { richTextBox1, "RX: " + Encoding.ASCII.GetString(recebido) + "\r\n" });
+            BeginInvoke(new Delegate_void_String(Append_Text), new object[] { richTextBox1, "RX: " + BitConverter.ToString(recebido).Replace('-', ' ') + "\r\n" });
         }
         public delegate void Delegate_void_String(RichTextBox textbox, string text);
         public void Append_Text(RichTextBox textbox, string text)
         {
             textbox.AppendText(text);
+            textbox.ScrollToCaret();
         }
     }
 
