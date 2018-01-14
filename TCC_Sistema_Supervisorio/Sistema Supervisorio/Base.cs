@@ -21,6 +21,7 @@ using LiveCharts.Wpf; //The WPF controls
 using LiveCharts.WinForms; //the WinForm wrappers
 using System.Collections;
 using OfficeOpenXml;
+using Newtonsoft.Json;
 
 namespace Sistema_Supervisorio
 {
@@ -51,16 +52,32 @@ namespace Sistema_Supervisorio
             public List<byte[]> Lista_Acelerometro = new List<byte[]>(256);
             public List<byte[]> Lista_STemp = new List<byte[]>(256);
         }
-
+        public class Sensor
+        {
+            public string Tipo;
+            public string Data;
+            public string Hora;
+            public string ID_TX;
+            public string ID_sensor;
+            public List<string> Dados;
+            public Sensor()
+            {
+                Dados = new List<string>();
+                Data = "";
+                Hora = "";
+            }
+        }
         List<ParametrosSenders> Lista_Senders = new List<ParametrosSenders>(256);
         System.Timers.Timer general_timer = new System.Timers.Timer(5000);
         SerialPort serialport = new SerialPort();
-        static TcpListener servidorTCP = null;    
+        static TcpListener servidorTCP = null;
         NetworkStream stream_data;
         byte[] s = { 0x01, 0x02 };
         List<byte> ListaID_Temperatura = new List<byte>(256);
         List<byte> ListaID_Corrente = new List<byte>(256);
         List<byte> ListaID_TX = new List<byte>(256);
+        List<Sensor> ListaSensorJSON = new List<Sensor>(1000);
+        List<byte[]> ListaHandleMSG = new List<byte[]>(65535);
         byte flag_status_servidorTCP = 0x00;
         Protocolo Mensagem = new Protocolo();
         private BackgroundWorker bw_message;
@@ -68,6 +85,7 @@ namespace Sistema_Supervisorio
         static private BackgroundWorker bw_message_TCP2;
         static private BackgroundWorker bw_message_TCP3;
         private BackgroundWorker bw_table;
+        private BackgroundWorker bw_Add_JSON;
         FileInfo TabelaExcel;
         String FolderPath = Path.Combine(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location));
         string[] FilesOnFolder;
@@ -79,10 +97,11 @@ namespace Sistema_Supervisorio
             general_timer.Elapsed += General_timer_Handler;
             this.bw_message = new BackgroundWorker();
             this.bw_message.DoWork += new DoWorkEventHandler(bw_message_DoWork);
-            this.bw_message.ProgressChanged += new ProgressChangedEventHandler(bw_message_ProgressChanged);
-            this.bw_message.RunWorkerCompleted += new RunWorkerCompletedEventHandler(bw_message_RunWorkerCompleted);
-            this.bw_message.WorkerReportsProgress = true;
+            bw_message.RunWorkerAsync();
 
+            bw_Add_JSON = new BackgroundWorker();
+            bw_Add_JSON.DoWork += new DoWorkEventHandler(bw_Add_JSON_DoWork);
+            bw_Add_JSON.RunWorkerAsync();
             bw_message_TCP1 = new BackgroundWorker();
             bw_message_TCP1.DoWork += new DoWorkEventHandler(bw_message_DoWork);
 
@@ -94,8 +113,50 @@ namespace Sistema_Supervisorio
 
 
             this.bw_table = new BackgroundWorker();
-            this.bw_table.DoWork += new DoWorkEventHandler(bw_table_DoWork);      
+            this.bw_table.DoWork += new DoWorkEventHandler(bw_table_DoWork);
         }
+
+        private void bw_Add_JSON_DoWork(object sender, DoWorkEventArgs e)
+        {
+            if (ListaSensorJSON.Count > 0)
+            {
+                Sensor dados_recebidos = ListaSensorJSON[0];
+                if (dados_recebidos != null)
+                {
+                    dados_recebidos.Data = string.Format("{0}/{1}/{2}", DateTime.Now.ToString("dd"), DateTime.Now.ToString("MM"), DateTime.Now.ToString("yy"));
+                    dados_recebidos.Hora = string.Format("{0}:{1}:{2}", DateTime.Now.ToString("HH"), DateTime.Now.ToString("mm"), DateTime.Now.ToString("ss"));
+
+                    string json_string = JsonConvert.SerializeObject(dados_recebidos);
+
+
+
+                    FilesOnFolder = Directory.GetFiles(FolderPath);
+                    bool teste = FilesOnFolder.Contains(FolderPath + string.Format("\\Json ID {0}.txt", dados_recebidos.ID_TX));
+                    if (!FilesOnFolder.Contains(FolderPath + string.Format("\\Json ID {0}.txt", dados_recebidos.ID_TX)))
+                    {
+                        // Create a file to write to.
+                        using (StreamWriter sw = File.CreateText(FolderPath + string.Format("\\Json ID {0}.txt", dados_recebidos.ID_TX)))
+                        {
+                            sw.Write("[" + json_string);
+                            sw.Close();
+                            sw.Dispose();
+
+                        }
+                    }
+                    else
+                    {
+                        using (StreamWriter sw = File.AppendText(FolderPath + string.Format("\\Json ID {0}.txt", dados_recebidos.ID_TX)))
+                        {
+                            sw.Write(",\r\n" + json_string);
+                            sw.Close();
+                            sw.Dispose();
+                        }
+                    }
+                    ListaSensorJSON.RemoveAt(0);
+                }
+            }
+        }
+
 
         private void bw_table_DoWork(object sender, DoWorkEventArgs e)
         {
@@ -151,10 +212,20 @@ namespace Sistema_Supervisorio
             BackgroundWorker worker = (BackgroundWorker)sender;
             try
             {
-                byte[] recebido = (byte[])e.Argument;
+                byte[] msg;
+                while (ListaHandleMSG.Count > 0)
+                {
+                    msg = new byte[ListaHandleMSG[0].Length];
+                    msg = ListaHandleMSG[0];
+                    if (msg != null)
+                    {
+                        Handle_Big_Frame(msg);
+                        ListaHandleMSG.RemoveAt(0);
+                    }
 
-                Handle_Big_Frame(recebido);
+                }
             }
+
             catch (Exception ex)
             {
                 //buttonTeste.Enabled = true;
@@ -168,40 +239,23 @@ namespace Sistema_Supervisorio
         {
             int i, j, k;
             byte[] aux;
-            for(i = 0; i < vetor.Length; i++)
+            for (i = 0; i < vetor.Length; i++)
             {
-                if(vetor[i] == 0x01)
+                if (vetor[i] == 0x01)
                 {
-                    for(j = i; j < vetor.Length; j++)
+                    for (j = i; j < vetor.Length; j++)
                     {
-                        if(vetor[j] == 0x04)
+                        if (vetor[j] == 0x04)
                         {
                             aux = new byte[(j - i) + 1];
                             Array.Copy(vetor, i, aux, 0, aux.Length);
-                            Handle_Frame(vetor);
+                            Handle_Frame(aux);
                             i = j + 1;
                             break;
                         }
                     }
                 }
             }
-        }
-        private void bw_message_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
-        {
-
-        }
-        private void bw_message_ProgressChanged(object sender, ProgressChangedEventArgs e)
-        {
-            //this.label1.Text = e.ProgressPercentage.ToString() + "% complete";
-            string s = (string)e.UserState;
-            switch (s)
-            {
-                case "oi":
-                    //if (textNCartao.Text == "") { textNCartao.Text = "0"; }
-                    //if (textNSerie.Text == "") { textNSerie.Text = "0"; }
-                    break;
-            }
-
         }
 
         #endregion
@@ -383,9 +437,10 @@ namespace Sistema_Supervisorio
                 if (recebido == null || recebido.Length == 0) { }
                 else
                 {
-                    if (!this.bw_message.IsBusy)
+                    ListaHandleMSG.Add(recebido);
+                    if (bw_message.IsBusy == false)
                     {
-                        this.bw_message.RunWorkerAsync(recebido);
+                        bw_message.RunWorkerAsync();
                     }
                 }
             }
@@ -460,9 +515,10 @@ namespace Sistema_Supervisorio
                             servidorTCP.Start();
 
                             servidorTCP.BeginAcceptTcpClient(OnClientAccepted, servidorTCP);
-
+                            textLOG.Enabled = true;
                             flag_status_servidorTCP = 0x01;
                             button_tcp.Text = "Fechar Servidor";
+                            BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", "Servidor TCP/IP Aberto. Aguardando conexão de clientes" });
                         }
                         break;
 
@@ -490,7 +546,7 @@ namespace Sistema_Supervisorio
             }
         }
 
-        static void OnClientAccepted(IAsyncResult ar)
+        private void OnClientAccepted(IAsyncResult ar)
         {
             TcpListener listener = ar.AsyncState as TcpListener;
             servidorTCP = listener;
@@ -499,18 +555,21 @@ namespace Sistema_Supervisorio
 
             try
             {
-               TcpClient clientTCP = listener.EndAcceptTcpClient(ar);
+                TcpClient clientTCP = listener.EndAcceptTcpClient(ar);
                 NetworkStream stream = clientTCP.GetStream();
                 byte[] buffer = new byte[100];
                 stream.BeginRead(buffer, 0, buffer.Length, OnClientRead, clientTCP);
+                BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", "Cliente Conectado" });
+                listener.BeginAcceptTcpClient(OnClientAccepted, listener);
             }
+            catch { }
             finally
             {
-                listener.BeginAcceptTcpClient(OnClientAccepted, listener);
+                //listener.BeginAcceptTcpClient(OnClientAccepted, listener);
             }
         }
 
-        static void OnClientRead(IAsyncResult ar)
+        private void OnClientRead(IAsyncResult ar)
         {
             TcpClient client = ar.AsyncState as TcpClient;
             byte[] bytes = new byte[100];
@@ -519,19 +578,13 @@ namespace Sistema_Supervisorio
             int i;
             bool dataAvailable = false;
             // Loop to receive all the data sent by the client.
-            
+
             OnMessageReceived(bytes);
-            while (true)
+            while (true && client.Connected && (flag_status_servidorTCP == 0x00))
             {
                 if (!dataAvailable)
                 {
                     dataAvailable = stream.DataAvailable;
-                    //Console.WriteLine("Data Available: "+dataAvailable);
-                    if (servidorTCP.Pending())
-                    {
-                        Console.WriteLine("found new client");
-                        break;
-                    }
                 }
 
                 if (dataAvailable)
@@ -541,20 +594,32 @@ namespace Sistema_Supervisorio
                     dataAvailable = false;
                 }
 
-                if (servidorTCP.Pending())
+                /*if (servidorTCP.Pending())
                 {
                     Console.WriteLine("found new client");
                     break;
-                }
+                }*/
             }
 
             Console.WriteLine("Client close");
             // Shutdown and end connection
-            client.Close();
-        }
-    
+            try
+            {
+                if (stream != null)
+                {
+                    stream.Dispose();
+                }
 
-        static void OnMessageReceived(byte[] recebido)
+                client.Close();
+            }
+            catch (Exception ex)
+            {
+                ex.ToString();
+            }
+        }
+
+
+        private void OnMessageReceived(byte[] recebido)
         {
             // process the message here
             if (recebido == null || recebido.Length == 0) { }
@@ -562,7 +627,7 @@ namespace Sistema_Supervisorio
             {
                 try
                 {
-                    if (!bw_message_TCP1.IsBusy)
+                    /*if (!bw_message_TCP1.IsBusy)
                     {
                         bw_message_TCP1.RunWorkerAsync(recebido);
                     }
@@ -574,8 +639,14 @@ namespace Sistema_Supervisorio
                     {
                         bw_message_TCP3.RunWorkerAsync(recebido);
                     }
+                    */
+                    ListaHandleMSG.Add(recebido);
+                    if (bw_message.IsBusy == false)
+                    {
+                        bw_message.RunWorkerAsync();
+                    }
                 }
-                catch(Exception ex)
+                catch (Exception ex)
                 {
                     MessageBox.Show(ex.ToString());
                 }
@@ -762,7 +833,7 @@ namespace Sistema_Supervisorio
                     package.Save();
                 }
                 #endregion
-                
+
             }
             else
             {
@@ -835,6 +906,19 @@ namespace Sistema_Supervisorio
             aux = string.Format("Mensagem recebida de acelerômetro \r\n ID do transmissor: {0}\r\n ID do sensor: {1}\r\n Eixo X: {2}\r\n Eixo Y: {3}\r\n Eixo Z: {4}",
                 array[0].ToString(), array[4].ToString(), Math.Round(X, 4).ToString(), Math.Round(Y, 4).ToString(), Math.Round(Z, 4).ToString());
             BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Acelerômetro";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(Math.Round(X, 4).ToString());
+                s_temp.Dados.Add(Math.Round(Y, 4).ToString());
+                s_temp.Dados.Add(Math.Round(Z, 4).ToString());
+
+                ListaSensorJSON.Add(s_temp);
+
+            }
         }
 
         void Handle_SensorTemperatura(byte[] array)
@@ -843,13 +927,14 @@ namespace Sistema_Supervisorio
             if (array.Length <= 0) { return; }
             text_TX_ID_STemp.Text = array[0].ToString();
             text_ID_STemp.Text = array[4].ToString();
+            double a;
             int index;
 
 
             if (ListaID_Temperatura.Contains(array[4]))
             {
                 index = ListaID_Temperatura.FindIndex(b => b == array[4]);
-                double a = ((array[5] << 8) | array[6]);
+                a = ((array[5] << 8) | array[6]);
                 a /= 16;
                 if (cartesian_STemp.Series[index].Values.Count > 100)
                 {
@@ -878,13 +963,25 @@ namespace Sistema_Supervisorio
                     PointGeometrySize = 5,
                     PointForeground = myBrush
                 });
-                double a = ((array[5] << 8) | array[6]);
+                a = ((array[5] << 8) | array[6]);
                 a /= 16;
                 cartesian_STemp.Series[index].Values = (new ChartValues<double> { a });
                 text_Temperatura_Inst.Text = a.ToString();
                 aux = string.Format("Mensagem recebida de sensor de temperatura.\r\nID do Transmissor: {0}\r\nID do sensor: {1}\r\nTemperatura: {2}",
                     text_TX_ID_STemp.Text, text_ID_STemp.Text, a.ToString());
                 BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
+
+            }
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Temperatura";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(a.ToString());
+
+                ListaSensorJSON.Add(s_temp);
+
             }
         }
 
@@ -895,11 +992,11 @@ namespace Sistema_Supervisorio
             text_TX_ID_SCorrente.Text = array[0].ToString();
             text_ID_SCorrente.Text = array[4].ToString();
             int index;
-
+            double a;
             if (ListaID_Corrente.Contains(array[4]))
             {
                 index = ListaID_Corrente.FindIndex(b => b == array[4]);
-                double a = ((array[5] << 8) | array[6]);
+                a = ((array[5] << 8) | array[6]);
                 a *= 0.2957;
                 if (cartesian_SCorrente.Series[index].Values.Count > 100)
                 {
@@ -927,13 +1024,23 @@ namespace Sistema_Supervisorio
                     PointGeometrySize = 5,
                     PointForeground = myBrush
                 });
-                double a = ((array[5] << 8) | array[6]);
+                a = ((array[5] << 8) | array[6]);
                 a *= 0.2957;
                 cartesian_SCorrente.Series[index].Values = (new ChartValues<double> { a });
                 text_Corrente_Inst.Text = a.ToString();
                 aux = string.Format("Mensagem recebida de sensor de corrente.\r\nID do Transmissor: {0}\r\nID do sensor: {1}\r\n Corrente: {2}",
                     text_TX_ID_SCorrente.Text, text_ID_SCorrente.Text, a.ToString());
                 BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
+                if (check_JSON.Checked)
+                {
+                    Sensor s_temp = new Sensor();
+                    s_temp.Tipo = "Corrente";
+                    s_temp.ID_TX = array[0].ToString();
+                    s_temp.ID_sensor = array[4].ToString();
+                    s_temp.Dados.Add(a.ToString());
+                    ListaSensorJSON.Add(s_temp);
+
+                }
             }
         }
 
@@ -947,6 +1054,16 @@ namespace Sistema_Supervisorio
             aux = string.Format("Mensagem recebida de sensor ultrassônico.\r\nID do Transmissor: {0}\r\nID do sensor: {1}\r\n Distância(cm): {2}",
                     text_RX_SUltra_SND.Text, text_RX_SUltra_ID_Sensor.Text, ((array[5] << 8) | array[6]).ToString());
             BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Corrente";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(text_RX_SUltra_Valor.Text);
+                ListaSensorJSON.Add(s_temp);
+
+            }
         }
 
         void Handle_Magnetometro(byte[] array)
@@ -969,6 +1086,18 @@ namespace Sistema_Supervisorio
                 array[0].ToString(), array[4].ToString(), Math.Round(X, 4).ToString(), Math.Round(Y, 4).ToString(), Math.Round(Z, 4).ToString());
             BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
             text_RX_Mag_Valor.Text = string.Format("Eixo X: {0}\r\nEixo Y: {1}\r\nEixo Z: {2}", Math.Round(X, 4).ToString(), Math.Round(Y, 4).ToString(), Math.Round(Z, 4).ToString());
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Corrente";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(Math.Round(X, 4).ToString());
+                s_temp.Dados.Add(Math.Round(Y, 4).ToString());
+                s_temp.Dados.Add(Math.Round(Z, 4).ToString());
+                ListaSensorJSON.Add(s_temp);
+
+            }
         }
 
         void Handle_RTC(byte[] array)
@@ -1006,40 +1135,40 @@ namespace Sistema_Supervisorio
             switch (array[7])
             {
                 case 0:
-                    str_aux += String.Format("{1} de Janeiro de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} de Janeiro de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 1:
-                    str_aux += String.Format("{1} Fevereiro de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Fevereiro de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 2:
-                    str_aux += String.Format("{1} Março de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Março de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 3:
-                    str_aux += String.Format("{1} Abril de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Abril de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 4:
-                    str_aux += String.Format("{1} Maio de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Maio de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 5:
-                    str_aux += String.Format("{1} Junho de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Junho de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 6:
-                    str_aux += String.Format("{1} Julho de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Julho de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 7:
-                    str_aux += String.Format("{1} Agosto de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Agosto de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 8:
-                    str_aux += String.Format("{1} Setembro de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Setembro de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 9:
-                    str_aux += String.Format("{1} Outubro de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Outubro de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 10:
-                    str_aux += String.Format("{1} Novembro de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Novembro de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
                 case 11:
-                    str_aux += String.Format("{1} Dezembro de {0}", (2000 + array[8]).ToString(), array[6].ToString());
+                    str_aux += String.Format("{1} Dezembro de {0}{2}", (2000 + array[8]).ToString(), array[6].ToString());
                     break;
 
             }
@@ -1048,6 +1177,16 @@ namespace Sistema_Supervisorio
             str_aux2 = string.Format("Mensagem recebida de Real Time Clock.\r\nID do Transmissor: {0}\r\nID do sensor: {1}\r\n Data e Hora: {2}",
                     text_RX_RTC_SND.Text, text_RX_RTC_ID_Sensor.Text, str_aux);
             BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", str_aux2 });
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Corrente";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(str_aux);
+                ListaSensorJSON.Add(s_temp);
+
+            }
         }
 
         void Handle_PortaDigital(byte[] array)
@@ -1068,6 +1207,16 @@ namespace Sistema_Supervisorio
             aux = string.Format("Mensagem recebida de GPIO.\r\nID do Transmissor: {0}\r\nID do sensor: {1}\r\n Estado: {2}",
                     text_RX_GPIO_SND.Text, text_RX_GPIO_ID_Sensor.Text, text_RX_GPIO_Valor.Text);
             BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Corrente";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(text_RX_GPIO_Valor.Text);
+                ListaSensorJSON.Add(s_temp);
+
+            }
         }
 
         void Handle_PortaAnalogica(byte[] array)
@@ -1080,6 +1229,16 @@ namespace Sistema_Supervisorio
             aux = string.Format("Mensagem recebida de Porta Analógica.\r\nID do Transmissor: {0}\r\nID do sensor: {1}\r\n Valor: {2}",
                     text_RX_Analogico_SND.Text, text_RX_Analogico_ID_Sensor.Text, text_RX_Analogico_Valor.Text);
             BeginInvoke(new Delegate_void_String(Escreve_textLOG), new object[] { "", aux });
+            if (check_JSON.Checked)
+            {
+                Sensor s_temp = new Sensor();
+                s_temp.Tipo = "Corrente";
+                s_temp.ID_TX = array[0].ToString();
+                s_temp.ID_sensor = array[4].ToString();
+                s_temp.Dados.Add(text_RX_Analogico_Valor.Text);
+                ListaSensorJSON.Add(s_temp);
+
+            }
         }
         #endregion
 
@@ -1232,7 +1391,7 @@ namespace Sistema_Supervisorio
 
         private void buttonSaveLOG_Click(object sender, EventArgs e)
         {
-            if(DialogResult.Yes == MessageBox.Show("Deseja salvar o LOG de respostas?", "Atenção", MessageBoxButtons.YesNo))
+            if (DialogResult.Yes == MessageBox.Show("Deseja salvar o LOG de respostas?", "Atenção", MessageBoxButtons.YesNo))
             {
                 SaveFileDialog saveFileDialog1 = new SaveFileDialog();
                 saveFileDialog1.DefaultExt = "*.txt";
@@ -1545,10 +1704,5 @@ namespace Sistema_Supervisorio
             return Montar_Frame(RCP, CMD);
         }
         #endregion
-    }
-    public class DateModel
-    {
-        public string Hora { get; set; }
-        public double Value { get; set; }
     }
 }

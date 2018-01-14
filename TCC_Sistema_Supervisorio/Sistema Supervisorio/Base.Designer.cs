@@ -174,6 +174,9 @@
             this.label25 = new System.Windows.Forms.Label();
             this.text_TX_SUltra_RCP = new System.Windows.Forms.TextBox();
             this.label24 = new System.Windows.Forms.Label();
+            this.groupBox13 = new System.Windows.Forms.GroupBox();
+            this.check_JSON = new System.Windows.Forms.CheckBox();
+            this.button1 = new System.Windows.Forms.Button();
             this.groupBoxTCP.SuspendLayout();
             this.groupBoxSerial.SuspendLayout();
             this.tabControl.SuspendLayout();
@@ -196,6 +199,7 @@
             this.groupBox10.SuspendLayout();
             this.groupBox9.SuspendLayout();
             this.groupBox8.SuspendLayout();
+            this.groupBox13.SuspendLayout();
             this.SuspendLayout();
             // 
             // groupBoxTCP
@@ -340,6 +344,7 @@
             // tab_configuracao
             // 
             this.tab_configuracao.BackColor = System.Drawing.SystemColors.Control;
+            this.tab_configuracao.Controls.Add(this.groupBox13);
             this.tab_configuracao.Controls.Add(this.groupBoxSerial);
             this.tab_configuracao.Controls.Add(this.groupBoxTCP);
             this.tab_configuracao.Location = new System.Drawing.Point(4, 22);
@@ -1954,6 +1959,36 @@
             this.label24.TabIndex = 2;
             this.label24.Text = "ID do Receptor:";
             // 
+            // groupBox13
+            // 
+            this.groupBox13.Controls.Add(this.button1);
+            this.groupBox13.Controls.Add(this.check_JSON);
+            this.groupBox13.Location = new System.Drawing.Point(313, 7);
+            this.groupBox13.Name = "groupBox13";
+            this.groupBox13.Size = new System.Drawing.Size(143, 165);
+            this.groupBox13.TabIndex = 3;
+            this.groupBox13.TabStop = false;
+            this.groupBox13.Text = "Configurações";
+            // 
+            // check_JSON
+            // 
+            this.check_JSON.AutoSize = true;
+            this.check_JSON.Location = new System.Drawing.Point(7, 34);
+            this.check_JSON.Name = "check_JSON";
+            this.check_JSON.Size = new System.Drawing.Size(121, 17);
+            this.check_JSON.TabIndex = 0;
+            this.check_JSON.Text = "Criar arquivos JSON";
+            this.check_JSON.UseVisualStyleBackColor = true;
+            // 
+            // button1
+            // 
+            this.button1.Location = new System.Drawing.Point(7, 68);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(121, 23);
+            this.button1.TabIndex = 1;
+            this.button1.Text = "Criar Tabelas Excel";
+            this.button1.UseVisualStyleBackColor = true;
+            // 
             // ControlSystem
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -2003,6 +2038,8 @@
             this.groupBox9.PerformLayout();
             this.groupBox8.ResumeLayout(false);
             this.groupBox8.PerformLayout();
+            this.groupBox13.ResumeLayout(false);
+            this.groupBox13.PerformLayout();
             this.ResumeLayout(false);
 
         }
@@ -2154,6 +2191,9 @@
         private System.Windows.Forms.Label label35;
         private System.Windows.Forms.Label label23;
         private System.Windows.Forms.TextBox text_Analogico_value;
+        private System.Windows.Forms.GroupBox groupBox13;
+        private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.CheckBox check_JSON;
     }
 }
 
