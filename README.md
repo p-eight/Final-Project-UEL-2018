@@ -2,10 +2,11 @@
 
 ## Informações
 * **Título**: Desenvolvimento de Sistema Supervisório para Aquisição de Dados de Sensores Embarcados Através do Protocolo TCP/IP
-* **Autor**: Pedro Henrique Batista Bonifácio
+* **Autor**: Pedro Henrique Batista Bonifácio - [email](mailto:pedrobonifa@gmail.com)
 * **Orientador**: Prof. Dr. Aziz Elias Demian Junior
 * **Departamento de Engenharia Elétrica - DEEL**
 * **Universidade Estadual de Londrina - UEL**
+* [Monografia](http://www.uel.br/ctu/deel/TCC/TCC2017_PedroHenriqueBatistaBonifacio.pdf)
 
 
 #### Desenvolvimento
@@ -17,7 +18,7 @@
 #### Testes
 - [Arduino Mega](https://www.arduino.cc/en/Main/ArduinoBoardMega)
 - [STM32F4DISCOVERY](http://www.st.com/en/evaluation-tools/stm32f4discovery.html)
-- TCC Filipe Travizani
+- [TCC Filipe Travizani](http://www.uel.br/ctu/deel/TCC/TCC2017_FilipeTravizaniRicato.pdf)
 
 #### Sensores
 - Real Time Clock - RTC: [DS1307](https://datasheets.maximintegrated.com/en/ds/DS1307.pdf)
